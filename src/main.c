@@ -51,9 +51,3 @@ void setup_adc(void) {
     ADC1->CHSELR = (1 << 1); 
     while (!(ADC1->ISR & ADC_ISR_ADRDY));
 }
-
-void init_input(void){
-    RCC->AHBENR |= RCC_AHBENR_GPIOCEN;
-    GPIOC->MODER &= ~0xFF00; //clearing PC4-7
-    GPIOC->MODER |= 0x5500; //PC4-7 configured as input
-}
