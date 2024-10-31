@@ -215,27 +215,23 @@ void init_spi1(void) {
     RCC->AHBENR |= RCC_AHBENR_GPIOAEN;     // Enable GPIOA clock
 
     // Configure GPIOA pins PA15 (SCK), PA5 (MISO), and PA7 (MOSI) for SPI1
-    GPIOA->MODER &= ~((3UL << (15 * 2)) | (3UL << (5 * 2)) | (3UL << (7 * 2)));  // Clear mode bits
-    GPIOA->MODER |= (2UL << (15 * 2)) | (2UL << (5 * 2)) | (2UL << (7 * 2));     // Set alternate function mode (10) for PA15, PA5, PA7
-    GPIOA->AFR[1] &= ~(0xFUL << ((15 - 8) * 4));                                 // Clear AFRH bits for PA15
-    GPIOA->AFR[0] &= ~((0xFUL << (5 * 4)) | (0xFUL << (7 * 4)));                 // Clear AFRL bits for PA5 and PA7
-    GPIOA->AFR[1] |= (5UL << ((15 - 8) * 4));                                    // Set AF5 for SPI1 on PA15 (AFRH)
-    GPIOA->AFR[0] |= (5UL << (5 * 4)) | (5UL << (7 * 4));                        // Set AF5 for SPI1 on PA5 and PA7 (AFRL)
+    GPIOA->MODER &= ~0xC000CC00;  // Clear mode bits
+    GPIOA->MODER |= 0x80008800;     // Set alternate function mode (10) for PA15, PA5, PA7
+    GPIOA->AFR[1] &= ~0xF0000000;    // Clear AFRH bits for PA15
+    GPIOA->AFR[0] &= ~0xF0F00000;                 // Clear AFRL bits for PA5 and PA7
+    GPIOA->AFR[1] |= 0x50000000;                                    // Set AF5 for SPI1 on PA15 (AFRH)
+    GPIOA->AFR[0] |= 0x50500000;                        // Set AF5 for SPI1 on PA5 and PA7 (AFRL)
 
     // Configure SPI1
     SPI1->CR1 &= ~SPI_CR1_SPE;
 
     // Set baud rate to maximum divisor (24MHz speed)
     SPI1->CR1 &= ~SPI_CR1_BR;
-
     SPI1->CR1 |= SPI_CR1_MSTR;              // Master selection
     SPI1->CR2 |= SPI_CR2_DS;                // 8-bit data frame format
     SPI1->CR2 &= ~SPI_CR2_DS_3;
-
     SPI1->CR1 |= SPI_CR1_SSM | SPI_CR1_SSI; // SSM: Software slave management, SSI: Internal slave select
-
     SPI1->CR2 |= SPI_CR2_FRXTH;             //8-bit threshold for FIFO reception
-
     SPI1->CR1 |= SPI_CR1_SPE;               // Enable SPI
 }
 
@@ -244,8 +240,8 @@ void init_lcd_spi(void) {
     RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
 
     // Configure PB8, PB11, and PB14 as general-purpose outputs for CS, DC/RS, and RST
-    GPIOB->MODER &= ~((3UL << (8 * 2)) | (3UL << (11 * 2)) | (3UL << (14 * 2)));  // Clear mode bits
-    GPIOB->MODER |= (1UL << (8 * 2)) | (1UL << (11 * 2)) | (1UL << (14 * 2));     // Set as output mode (01)
+    GPIOB->MODER &= ~0x30C30000;  // Clear PB8, PB11, PB14
+    GPIOB->MODER |= -0x20420000;     // Set PB8, PB11, PB14 for output (01)
 
     // Call init_spi1() to configure SPI1 with specified settings
     init_spi1();
