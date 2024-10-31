@@ -24,6 +24,7 @@ void setup_adc(void);
 void init_i2c(void);
 void start_i2c(uint32_t targadr, uint8_t size, uint8_t dir);
 void stop_i2c(void);
+void i2c_waitidle(void);
 
 // Returns 2 with 0.9 probability or 4 with 0.1 probability
 int getRandomNumber() {
@@ -90,4 +91,8 @@ void stop_i2c(void){
     I2C1->CR2 |= I2C_CR2_STOP;
     while (!(I2C1->ISR & I2C_ISR_STOPF)); //wait for STOP 
     I2C1->ICR |= I2C_ICR_STOPCF;
+}
+
+void i2c_waitidle(void){
+    while ((I2C1->ISR & I2C_ISR_BUSY));
 }
