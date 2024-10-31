@@ -183,7 +183,6 @@ void internal_clock();
 
 int main(void){
     internal_clock();
-    enable_ports();
 
 }
 
