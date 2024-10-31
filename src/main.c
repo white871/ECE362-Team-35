@@ -43,6 +43,7 @@ void init_i2c(void);
 void start_i2c(uint32_t targadr, uint8_t size, uint8_t dir);
 void stop_i2c(void);
 void i2c_waitidle(void);
+int8_t i2c_senddata(uint8_t targadr, uint8_t data[], uint8_t size);
 
 // Returns 2 with 0.9 probability or 4 with 0.1 probability
 int getRandomNumber() {
@@ -216,10 +217,8 @@ void init_spi1(void) {
     // Configure GPIOA pins PA15 (SCK), PA5 (MISO), and PA7 (MOSI) for SPI1
     GPIOA->MODER &= ~0xC000CC00;  // Clear mode bits
     GPIOA->MODER |= 0x80008800;     // Set alternate function mode (10) for PA15, PA5, PA7
-    GPIOA->AFR[1] &= ~0xF0000000;    // Clear AFRH bits for PA15
-    GPIOA->AFR[0] &= ~0xF0F00000;                 // Clear AFRL bits for PA5 and PA7
-    GPIOA->AFR[1] |= 0x50000000;                                    // Set AF5 for SPI1 on PA15 (AFRH)
-    GPIOA->AFR[0] |= 0x50500000;                        // Set AF5 for SPI1 on PA5 and PA7 (AFRL)
+    GPIOA->AFR[1] &= ~0xF0000000;    // Clear AFRH bits for PA15 (AF0)
+    GPIOA->AFR[0] &= ~0xF0F00000;                 // Clear AFRL bits for PA5 and PA7 (AF0)
 
     // Configure SPI1
     SPI1->CR1 &= ~SPI_CR1_SPE;
@@ -240,7 +239,7 @@ void init_lcd_spi(void) {
 
     // Configure PB8, PB11, and PB14 as general-purpose outputs for CS, DC/RS, and RST
     GPIOB->MODER &= ~0x30C30000;  // Clear PB8, PB11, PB14
-    GPIOB->MODER |= -0x20420000;     // Set PB8, PB11, PB14 for output (01)
+    GPIOB->MODER |= 0x20420000;     // Set PB8, PB11, PB14 for output (01)
 
     // Call init_spi1() to configure SPI1 with specified settings
     init_spi1();
@@ -284,4 +283,9 @@ void stop_i2c(void){
 
 void i2c_waitidle(void){
     while ((I2C1->ISR & I2C_ISR_BUSY));
+}
+
+int8_t i2c_senddata(uint8_t targadr, uint8_t data[], uint8_t size) {
+    i2c_waitidle(); //wait for I2C to be idle
+    start_i2c(targadr, size, 0); //send START
 }
