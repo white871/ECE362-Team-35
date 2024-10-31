@@ -43,7 +43,10 @@ void init_i2c(void);
 void start_i2c(uint32_t targadr, uint8_t size, uint8_t dir);
 void stop_i2c(void);
 void i2c_waitidle(void);
+int i2c_recvdata(uint8_t targadr, void *data, uint8_t size);
 int8_t i2c_senddata(uint8_t targadr, uint8_t data[], uint8_t size);
+int i2c_checknack(void);
+void i2c_clearnack(void);
 
 // Returns 2 with 0.9 probability or 4 with 0.1 probability
 int getRandomNumber() {
@@ -218,7 +221,7 @@ void init_spi1(void) {
     GPIOA->MODER &= ~0xC000CC00;  // Clear mode bits
     GPIOA->MODER |= 0x80008800;     // Set alternate function mode (10) for PA15, PA5, PA7
     GPIOA->AFR[1] &= ~0xF0000000;    // Clear AFRH bits for PA15 (AF0)
-    GPIOA->AFR[0] &= ~0xF0F00000;                 // Clear AFRL bits for PA5 and PA7 (AF0)
+    GPIOA->AFR[0] &= ~0xF0F00000;    // Clear AFRL bits for PA5 and PA7 (AF0)
 
     // Configure SPI1
     SPI1->CR1 &= ~SPI_CR1_SPE;
@@ -287,5 +290,56 @@ void i2c_waitidle(void){
 
 int8_t i2c_senddata(uint8_t targadr, uint8_t data[], uint8_t size) {
     i2c_waitidle(); //wait for I2C to be idle
-    start_i2c(targadr, size, 0); //send START
+    start_i2c(targadr, size, 0); //send START with write bit (dir = 0)
+    uint8_t i;
+    for (i = 0; i < size; i++)
+    {
+        int count = 0;
+    while ((I2C1->ISR & I2C_ISR_TXIS) == 0) {
+        count += 1;
+        if (count > 1000000)
+            return -1;
+        if (i2c_checknack()) {
+            i2c_clearnack();
+            stop_i2c();
+            return -1;
+    }
+}
+I2C1->TXDR = data[i] & I2C_TXDR_TXDATA; //mask data[i] with TXDR_TXDATA
+}
+if (I2C1->ISR & I2C_ISR_NACKF){
+        return -1; //write failed
+    }
+    stop_i2c(); //send STOP
+    return 0; //0 for success
+}
+
+int i2c_recvdata(uint8_t targadr, void *data, uint8_t size) {
+    i2c_waitidle(); //wait for I2C to be idle
+    start_i2c(targadr, size, 1); //send START with read bit (dir = 1)
+    uint8_t i;
+    for (i = 0; i < size; i++)
+    {
+        int count = 0;
+    while ((I2C1->ISR & I2C_ISR_TXIS) == 0) {
+        count += 1;
+        if (count > 1000000)
+            return -1;
+        if (i2c_checknack()) {
+            i2c_clearnack();
+            stop_i2c();
+            return -1;
+    }
+}  
+  data[i] = (uint8_t)(I2C1->RXDR & I2C_RXDR_RXDATA);
+}
+    i2c_stop(); 
+    return 0;
+}
+void i2c_clearnack(void) {
+    I2C1->ICR |= I2C_ICR_NACKCF; // Clear the NACK flag
+}
+
+int i2c_checknack(void) {
+    return ((I2C1->ISR & I2C_ISR_NACKF) ? 1 : 0);
 }
