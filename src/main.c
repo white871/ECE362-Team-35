@@ -22,7 +22,7 @@ const char* username = "mcdonou5";
 void init_input(void);
 void setup_adc(void);
 void init_i2c(void);
-void start_i2c(void);
+void start_i2c(uint32_t targadr, uint8_t size, uint8_t dir);
 void stop_i2c(void);
 
 // Returns 2 with 0.9 probability or 4 with 0.1 probability
@@ -47,7 +47,7 @@ void setup_adc(void) {
     GPIOA->MODER &= ~0xC; //clear PA1 
     GPIOA->MODER |= 0xC; //PA1 to analog
     RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;
-    RCC->CR2 |= RCC_CR2_HSI14ON;
+    RCC->CR2 |= RCC_CR2_HSI14ON; //14 MHz clock
     while (!(RCC->CR2 & RCC_CR2_HSI14RDY));
     ADC1->CR |= ADC_CR_ADEN;
     while (!(ADC1->ISR & ADC_ISR_ADRDY));
@@ -69,4 +69,25 @@ void init_i2c(void){
     I2C1->CR2 &= ~I2C_CR2_ADD10; //7-bit addressing
     I2C1->CR2 |= I2C_CR2_AUTOEND; //send stop after last NBytes is transferred
     I2C1->CR1 |= I2C_CR1_PE; //enable I2C
+}
+
+void start_i2c(uint32_t targadr, uint8_t size, uint8_t dir){
+    uint32_t tempCR2 = I2C1->CR2;
+    tempCR2 &= ~0xFF67FF; //clearing NBytes, STOP, START, RD_WRN, SADD
+    if (dir){
+        tempCR2 |= I2C_CR2_RD_WRN; //operation is a read
+    }
+    tempCR2 |= ((targadr<<1) & I2C_CR2_SADD) | ((size << 16) & I2C_CR2_NBYTES); //set target address and data size
+    tempCR2 |= I2C_CR2_START; //prepare start of read/write
+    I2C1->CR2 = tempCR2;
+}
+
+void stop_i2c(void){
+    //Check if stop bit is set
+    if (I2C1->ISR & I2C_ISR_STOPF) {
+        return;
+    }
+    I2C1->CR2 |= I2C_CR2_STOP;
+    while (!(I2C1->ISR & I2C_ISR_STOPF)); //wait for STOP 
+    I2C1->ICR |= I2C_ICR_STOPCF;
 }
