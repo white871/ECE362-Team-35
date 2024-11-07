@@ -17,6 +17,7 @@ const char* username = "mcdonou5";
 
 #include "stm32f0xx.h"
 #include <stdint.h>
+#include <stdlib.h>
 
 #define DISPLAY_WIDTH  240 
 #define DISPLAY_HEIGHT 240
@@ -36,17 +37,34 @@ const char* username = "mcdonou5";
 #define COLOR_1024      0xFFFF  // White for 1024
 #define COLOR_2048      0xFFE0  // Gold for 2048
 
+uint16_t display[34] = {
+        0x002, // Command to set the cursor at the first position line 1
+        0x200+'E', 0x200+'C', 0x200+'E', 0x200+'3', 0x200+'6', + 0x200+'2', 0x200+' ', 0x200+'i',
+        0x200+'s', 0x200+' ', 0x200+'t', 0x200+'h', + 0x200+'e', 0x200+' ', 0x200+' ', 0x200+' ',
+        0x0c0, // Command to set the cursor at the first position line 2
+        0x200+'c', 0x200+'l', 0x200+'a', 0x200+'s', 0x200+'s', + 0x200+' ', 0x200+'f', 0x200+'o',
+        0x200+'r', 0x200+' ', 0x200+'y', 0x200+'o', + 0x200+'u', 0x200+'!', 0x200+' ', 0x200+' ',
+}; //display for OLED font
+
 //DECLARATIONS
 void init_input(void);
 void setup_adc(void);
 void init_i2c(void);
-void start_i2c(uint32_t targadr, uint8_t size, uint8_t dir);
-void stop_i2c(void);
+void i2c_start(uint32_t targadr, uint8_t size, uint8_t dir);
+void i2c_stop(void);
 void i2c_waitidle(void);
 int i2c_recvdata(uint8_t targadr, void *data, uint8_t size);
 int8_t i2c_senddata(uint8_t targadr, uint8_t data[], uint8_t size);
 int i2c_checknack(void);
 void i2c_clearnack(void);
+void init_spi1();
+void spi_cmd(unsigned int data);
+void spi_data(unsigned int data);
+void spi1_init_oled();
+void spi1_display1(const char *string);
+void spi1_display2(const char *string);
+void spi1_setup_dma(void);
+void spi1_enable_dma(void);
 
 // Returns 2 with 0.9 probability or 4 with 0.1 probability
 int getRandomNumber() {
@@ -248,22 +266,19 @@ void init_lcd_spi(void) {
     init_spi1();
 }
 
-void init_i2c(void){
-    RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
-    GPIOA->MODER &= ~0x3C0000;
-    GPIOA->MODER |= 0x280000; //PA9 and PA10 in alternate function
-    GPIOA->AFR[1] |= 0x440; //PA9 and PA10 to AF4
+void init_i2c(void) {
     RCC->APB1ENR |= RCC_APB1ENR_I2C1EN;
     I2C1->CR1 &= ~I2C_CR1_PE; //disable I2C first
-    I2C1->CR1 |= I2C_CR1_ERRIE; //error interrupts enabled
+    I2C1->CR1 |= I2C_CR1_ERRIE; //error interrupt enabled
     I2C1->CR1 |= I2C_CR1_ANFOFF; //disable analog filter
-    I2C1->TIMINGR |= 0x501F0204; //6 * 8Mhz = 48Mhz clock, 400 kHZ fast mode (supported by EEPROM)
+    I2C1->CR1 |= I2C_CR1_NOSTRETCH; //disable clock stretching
+    I2C1->TIMINGR |= 0x50074883; //6 * 8Mhz = 48Mhz clock, 400 kHZ fast mode (supported by EEPROM)
     I2C1->CR2 &= ~I2C_CR2_ADD10; //7-bit addressing
     I2C1->CR2 |= I2C_CR2_AUTOEND; //send stop after last NBytes is transferred
     I2C1->CR1 |= I2C_CR1_PE; //enable I2C
 }
 
-void start_i2c(uint32_t targadr, uint8_t size, uint8_t dir){
+void i2c_start(uint32_t targadr, uint8_t size, uint8_t dir) {
     uint32_t tempCR2 = I2C1->CR2;
     tempCR2 &= ~0xFF67FF; //clearing NBytes, STOP, START, RD_WRN, SADD
     if (dir){
@@ -274,72 +289,144 @@ void start_i2c(uint32_t targadr, uint8_t size, uint8_t dir){
     I2C1->CR2 = tempCR2;
 }
 
-void stop_i2c(void){
-    //Check if stop bit is set
+void i2c_stop(void) {
+      //Check if stop bit is set
     if (I2C1->ISR & I2C_ISR_STOPF) {
         return;
     }
     I2C1->CR2 |= I2C_CR2_STOP;
     while (!(I2C1->ISR & I2C_ISR_STOPF)); //wait for STOP 
-    I2C1->ICR |= I2C_ICR_STOPCF;
+    I2C1->ICR |= I2C_ICR_STOPCF; //clear stop flag
 }
 
-void i2c_waitidle(void){
+void i2c_waitidle(void) {
     while ((I2C1->ISR & I2C_ISR_BUSY));
 }
 
 int8_t i2c_senddata(uint8_t targadr, uint8_t data[], uint8_t size) {
     i2c_waitidle(); //wait for I2C to be idle
-    start_i2c(targadr, size, 0); //send START with write bit (dir = 0)
+    i2c_start(targadr, size, 0); //send START with write bit (dir = 0)
     uint8_t i;
     for (i = 0; i < size; i++)
     {
         int count = 0;
-    while ((I2C1->ISR & I2C_ISR_TXIS) == 0) {
+    while (!(I2C1->ISR & I2C_ISR_TXIS)) {
         count += 1;
         if (count > 1000000)
             return -1;
         if (i2c_checknack()) {
             i2c_clearnack();
-            stop_i2c();
+            i2c_stop();
             return -1;
-    }
+    }   
 }
 I2C1->TXDR = data[i] & I2C_TXDR_TXDATA; //mask data[i] with TXDR_TXDATA
 }
+while (((I2C1->ISR & I2C_ISR_TC) && (I2C1->ISR & I2C_ISR_NACKF))); //wait for these to be not set
+
 if (I2C1->ISR & I2C_ISR_NACKF){
+        i2c_stop();
         return -1; //write failed
     }
-    stop_i2c(); //send STOP
+    i2c_stop(); //send STOP
     return 0; //0 for success
 }
 
 int i2c_recvdata(uint8_t targadr, void *data, uint8_t size) {
     i2c_waitidle(); //wait for I2C to be idle
-    start_i2c(targadr, size, 1); //send START with read bit (dir = 1)
+    i2c_start(targadr, size, 1); //send START with read bit (dir = 1)
+
     uint8_t i;
     for (i = 0; i < size; i++)
     {
-        int count = 0;
-    while ((I2C1->ISR & I2C_ISR_TXIS) == 0) {
+    int count = 0;
+    while ((I2C1->ISR & I2C_ISR_RXNE) == 0) {
         count += 1;
-        if (count > 1000000)
+        if (count > 100000000)
             return -1;
         if (i2c_checknack()) {
             i2c_clearnack();
-            stop_i2c();
+            i2c_stop();
             return -1;
     }
 }  
-  data[i] = (uint8_t)(I2C1->RXDR & I2C_RXDR_RXDATA);
+  ((uint8_t*)data)[i] = (I2C1->RXDR & I2C_RXDR_RXDATA); //store masked data
 }
-    i2c_stop(); 
-    return 0;
+i2c_stop();
+return 0;
 }
+
 void i2c_clearnack(void) {
     I2C1->ICR |= I2C_ICR_NACKCF; // Clear the NACK flag
 }
-
 int i2c_checknack(void) {
     return ((I2C1->ISR & I2C_ISR_NACKF) ? 1 : 0);
+}
+
+
+
+//SPI LAB FUNCTIONS FOR OLED
+void init_spi1() {
+    RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
+    RCC->APB2ENR |= RCC_APB2ENR_SPI1EN;
+    GPIOA->MODER &= ~0xC000CC00;
+    GPIOA->MODER |= 0x80008800;
+    GPIOA->AFR[1] &= ~0xF0000000;
+    GPIOA->AFR[0] &= ~0xF0F00000;
+    SPI1->CR1 &= ~SPI_CR1_SPE;
+    SPI1->CR1 |= SPI_CR1_BR | SPI_CR1_MSTR; //BR to 111 and Master Mode
+    SPI1->CR2 |= SPI_CR2_TXDMAEN | SPI_CR2_NSSP | SPI_CR2_SSOE; //NSSP and SSOE bit and enable TXDMAEN
+    SPI1->CR2 |= 0xF00; //1111 in DS
+    SPI1->CR2 &= ~0x600; //1001 in DS
+    SPI1->CR1 |= SPI_CR1_SPE;
+}
+void spi_cmd(unsigned int data) {
+    while((SPI1->SR & SPI_SR_TXE) == 0);
+    SPI1->DR = data;
+}
+void spi_data(unsigned int data) {
+    spi_cmd(data | 0x200);
+}
+void spi1_init_oled() {
+    nano_wait(1000000);
+    spi_cmd(0x38);
+    spi_cmd(0x08);
+    spi_cmd(0x01);
+    nano_wait(2000000);
+    spi_cmd(0x06);
+    spi_cmd(0x02);
+    spi_cmd(0x0c);
+}
+void spi1_display1(const char *string) {
+    spi_cmd(0x00);
+    while (*string != '\0')
+    {
+        spi_data(*string);
+        string++;
+    }
+}
+void spi1_display2(const char *string) {
+    spi_cmd(0xc0);
+    while (*string != '\0')
+    {
+        spi_data(*string);
+        string++;
+    }
+}
+
+void spi1_setup_dma(void) {
+    RCC->AHBENR |= RCC_AHBENR_DMA1EN;
+    DMA1_Channel3->CCR &= ~DMA_CCR_EN;
+    DMA1_Channel3->CMAR = (uint32_t)display;
+    DMA1_Channel3->CPAR = (uint32_t)&SPI1->DR;
+    DMA1_Channel3->CNDTR = 34;
+    DMA1_Channel3->CCR |= DMA_CCR_DIR;
+    DMA1_Channel3->CCR |= DMA_CCR_MINC;
+    DMA1_Channel3->CCR |= 0x500; //MSIZE and PSIZE-> 16 bits
+    DMA1_Channel3->CCR |= DMA_CCR_CIRC;
+    SPI1->CR2 |= SPI_CR2_TXDMAEN;
+}
+
+void spi1_enable_dma(void) {
+    DMA1_Channel3->CCR |= DMA_CCR_EN;
 }
