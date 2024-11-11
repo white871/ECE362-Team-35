@@ -17,6 +17,10 @@ const char* username = "mcdonou5";
 
 #include "stm32f0xx.h"
 #include <stdint.h>
+#include <stdio.h>
+#include "lcd.h"
+#include <time.h>
+
 
 #define DISPLAY_WIDTH  240 
 #define DISPLAY_HEIGHT 240
@@ -24,6 +28,7 @@ const char* username = "mcdonou5";
 #define CELL_SIZE (DISPLAY_WIDTH / GRID_SIZE)
 
 #define BACKGROUND_COLOR 0xC618  // Light gray for empty tiles
+#define BLACK           0x0000  //  Black for number and outline
 #define COLOR_2         0xFFFF  // White for 2
 #define COLOR_4         0xFFE0  // Light yellow for 4
 #define COLOR_8         0xFC00  // Orange for 8
@@ -36,39 +41,23 @@ const char* username = "mcdonou5";
 #define COLOR_1024      0xFFFF  // White for 1024
 #define COLOR_2048      0xFFE0  // Gold for 2048
 
+
 //DECLARATIONS
-void init_input(void);
+void internal_clock(void);
+int main(void);
 void setup_adc(void);
+void init_spi1(void);
+void init_lcd_spi(void);
 void init_i2c(void);
 void start_i2c(uint32_t targadr, uint8_t size, uint8_t dir);
 void stop_i2c(void);
 void i2c_waitidle(void);
+void draw_tile(uint16_t x, uint16_t y, char* value, uint16_t color);
+void render_board();
+uint16_t get_tile_color(uint16_t value);
 
-// Returns 2 with 0.9 probability or 4 with 0.1 probability
-int getRandomNumber() {
-    return (random(0, 10) < 9) ? 2 : 4;
-}
-
-int calcScore(int current_score, int merge_val){
-  merge_val = merge_val * 2;
-  return current_score + merge_val;
-}
-
-void render_board(uint8_t board[4][4]) {
-    for (int row = 0; row < 4; row++) {
-        for (int col = 0; col < 4; col++) {
-            uint16_t x = col * CELL_SIZE;  // Calculate x position
-            uint16_t y = row * CELL_SIZE;  // Calculate y position
-            draw_tile(x, y, board[row][col]);  // Draw tile at x, y with value
-        }
-    }
-}
-
-void draw_tile(uint16_t x, uint16_t y, uint16_t value) {
-    // Clear cell area first, then draw value
-    lcd_fill_rect(x, y, CELL_SIZE, CELL_SIZE, BACKGROUND_COLOR);  // Fill tile background
-    lcd_draw_number(x, y, value);  // Draw number or tile
-}
+//Variables
+uint8_t board[4][4];
 
 uint16_t get_tile_color(uint16_t value) {
     switch (value) {
@@ -87,50 +76,62 @@ uint16_t get_tile_color(uint16_t value) {
     }
 }
 
-void lcd_fill_rect(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t color) {
-    // Set the LCD to the desired area
-    lcd_set_address_window(x, y, x + width - 1, y + height - 1);
 
-    // Send color data for each pixel in the rectangle
-    for (uint32_t i = 0; i < width * height; i++) {
-        lcd_send_data(color >> 8);  // Send the high byte
-        lcd_send_data(color & 0xFF); // Send the low byte
+// Returns 2 with 0.9 probability or 4 with 0.1 probability
+int getRandomNumber() {
+    // Generate a random number between 0 and 9
+    int randomValue = rand() % 10; // rand() % 10 gives a value between 0 and 9
+
+    // Return 2 with a probability of 90% and 4 with a probability of 10%
+    return (randomValue < 9) ? 2 : 4;
+}
+
+void create_board() {
+    // Initialize the board to all zeros
+    for (int row = 0; row < GRID_SIZE; row++) {
+        for (int col = 0; col < GRID_SIZE; col++) {
+            board[row][col] = 0;
+        }
+    }
+
+    // Place two random numbers on the board
+    for (int i = 0; i < 2; i++) {
+        int row, col;
+
+        // Find a unique empty spot
+        do {
+            row = rand() % GRID_SIZE; // Random row
+            col = rand() % GRID_SIZE; // Random column
+        } while (board[row][col] != 0); // Keep trying until we find an empty spot
+
+        // Place a random number (2 or 4) in the selected spot
+        board[row][col] = getRandomNumber();
     }
 }
 
-void lcd_set_address_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
-    // Command to set column address
-    lcd_send_command(0x2A);  // Column Address Set
-    lcd_send_data(x0 >> 8);  // Start column high byte
-    lcd_send_data(x0 & 0xFF); // Start column low byte
-    lcd_send_data(x1 >> 8);  // End column high byte
-    lcd_send_data(x1 & 0xFF); // End column low byte
-
-    // Command to set row address
-    lcd_send_command(0x2B);  // Page Address Set
-    lcd_send_data(y0 >> 8);  // Start row high byte
-    lcd_send_data(y0 & 0xFF); // Start row low byte
-    lcd_send_data(y1 >> 8);  // End row high byte
-    lcd_send_data(y1 & 0xFF); // End row low byte
-
-    // Command to start writing to memory
-    lcd_send_command(0x2C);  // Memory Write
+int calcScore(int current_score, int merge_val){
+  merge_val = merge_val * 2;
+  return current_score + merge_val;
 }
 
-void lcd_send_command(uint8_t command) {
-    GPIOB->ODR &= ~(1 << 11); // Set DC low for command
-    GPIOB->ODR &= ~(1 << 8);  // Set CS low
-    SPI1->DR = command;       // Send command
-    while (!(SPI1->SR & SPI_SR_TXE)); // Wait for transmission to complete
-    GPIOB->ODR |= (1 << 8);   // Set CS high
+void render_board() {
+    char str[5];
+    for (int col = 0; col < 4 ; col++) {
+        for (int row = 0; row < 4; row++) {
+            uint16_t x = col * CELL_SIZE;  // Calculate x position
+            uint16_t y = row * CELL_SIZE;  // Calculate y position
+            int num = board[row][col];
+            snprintf(str, sizeof(str), "%d", num); // int to string
+            draw_tile(x, y, str, get_tile_color(num));
+        }
+    }
 }
 
-void lcd_send_data(uint8_t data) {
-    GPIOB->ODR |= (1 << 11);  // Set DC high for data
-    GPIOB->ODR &= ~(1 << 8);  // Set CS low
-    SPI1->DR = data;          // Send data
-    while (!(SPI1->SR & SPI_SR_TXE)); // Wait for transmission to complete
-    GPIOB->ODR |= (1 << 8);   // Set CS high
+void draw_tile(uint16_t x, uint16_t y, char* value, uint16_t color) {
+    LCD_DrawFillRectangle(x, y, x + CELL_SIZE, y + CELL_SIZE, color);  // Fill tile background
+    LCD_DrawRectangle(x, y, x + CELL_SIZE, y + CELL_SIZE, BLACK);  // Fill tile background
+    //LCD_DrawChar(x, y, BLACK, get_tile_color(value), 48 + value, 16, 0);  // Draw number or tile
+    LCD_DrawString(x + 15, y + 20, BLACK, color, value, 16, 0);
 }
 
 const uint8_t font_data[10][5] = {
@@ -147,44 +148,14 @@ const uint8_t font_data[10][5] = {
     {0x06, 0x49, 0x49, 0x29, 0x1E}   // 9
 };
 
-void lcd_draw_number(uint16_t x, uint16_t y, uint16_t number) {
-    char str[5];  // Buffer to hold number as string
-    sprintf(str, "%u", number);  // Convert number to string
-    
-    for (int i = 0; str[i] != '\0'; i++) {
-        int digit = str[i] - '0';
-        lcd_draw_digit(x + i * 6, y, digit);  // Space each digit by 6 pixels
-    }
-}
-
-void lcd_draw_digit(uint16_t x, uint16_t y, uint8_t digit) {
-    if (digit > 9) return;  // Invalid digit
-    
-    for (int col = 0; col < 5; col++) {
-        uint8_t line = font_data[digit][col];
-        for (int row = 0; row < 7; row++) {
-            if (line & (1 << row)) {
-                lcd_set_pixel(x + col, y + row, 0x0000);  // Black for the digit
-            } else {
-                lcd_set_pixel(x + col, y + row, BACKGROUND_COLOR);  // Background color
-            }
-        }
-    }
-}
-
-void lcd_set_pixel(uint16_t x, uint16_t y, uint16_t color) {
-    lcd_set_address_window(x, y, x, y);  // Set window to a single pixel
-    lcd_send_data(color >> 8);           // Send high byte
-    lcd_send_data(color & 0xFF);         // Send low byte
-}
-
-
 void internal_clock();
 
 int main(void){
     internal_clock();
-    enable_ports();
-
+    LCD_Setup();
+    LCD_Clear(0000);
+    create_board();
+    render_board();
 }
 
 //PROJECT CODE
@@ -208,48 +179,85 @@ void setup_adc(void) {
 //===========================================================================
 // SPI1 TFT Display
 //===========================================================================
-
-void init_spi1(void) {
+void init_spi1_slow(){
     // Enable clocks for SPI1 and GPIOA
-    RCC->APB2ENR |= RCC_APB2ENR_SPI1EN;      // Enable SPI1 clock
-    RCC->AHBENR |= RCC_AHBENR_GPIOAEN;     // Enable GPIOA clock
+    RCC->APB2ENR |= RCC_APB2ENR_SPI1EN; // Enable SPI1 clock
+    RCC->AHBENR |= RCC_AHBENR_GPIOBEN; // Enable GPIOB clock
 
-    // Configure GPIOA pins PA15 (SCK), PA5 (MISO), and PA7 (MOSI) for SPI1
-    GPIOA->MODER &= ~((3UL << (15 * 2)) | (3UL << (5 * 2)) | (3UL << (7 * 2)));  // Clear mode bits
-    GPIOA->MODER |= (2UL << (15 * 2)) | (2UL << (5 * 2)) | (2UL << (7 * 2));     // Set alternate function mode (10) for PA15, PA5, PA7
-    GPIOA->AFR[1] &= ~(0xFUL << ((15 - 8) * 4));                                 // Clear AFRH bits for PA15
-    GPIOA->AFR[0] &= ~((0xFUL << (5 * 4)) | (0xFUL << (7 * 4)));                 // Clear AFRL bits for PA5 and PA7
-    GPIOA->AFR[1] |= (5UL << ((15 - 8) * 4));                                    // Set AF5 for SPI1 on PA15 (AFRH)
-    GPIOA->AFR[0] |= (5UL << (5 * 4)) | (5UL << (7 * 4));                        // Set AF5 for SPI1 on PA5 and PA7 (AFRL)
+    // Clear mode bits for PB3, PB4, and PB5
+    GPIOB->MODER &= ~((0x3 << 6) | (0x3 << 8) | (0x3 << 10));
+
+    // Set alternate function mode (10) for PB3, PB4, and PB5
+    GPIOB->MODER |= (0x2 << 6) | (0x2 << 8) | (0x2 << 10);
+
+    // Clear AFRL bits for PB3 PB4 and PB5 (alternate function register low)
+    GPIOB->AFR[0] &= ~((0xF << 12) | (0xF << 16) | (0xF << 20));
 
     // Configure SPI1
     SPI1->CR1 &= ~SPI_CR1_SPE;
 
     // Set baud rate to maximum divisor (24MHz speed)
-    SPI1->CR1 &= ~SPI_CR1_BR;
+    SPI1->CR1 |= (SPI_CR1_BR_0 | SPI_CR1_BR_1 | SPI_CR1_BR_2);
 
-    SPI1->CR1 |= SPI_CR1_MSTR;              // Master selection
-    SPI1->CR2 |= SPI_CR2_DS;                // 8-bit data frame format
+    // Master selection
+    SPI1->CR1 |= SPI_CR1_MSTR;
+    
+    // 8-bit data frame format
+    SPI1->CR2 |= SPI_CR2_DS_0;
+    SPI1->CR2 |= SPI_CR2_DS_1;
+    SPI1->CR2 |= SPI_CR2_DS_2;
     SPI1->CR2 &= ~SPI_CR2_DS_3;
 
-    SPI1->CR1 |= SPI_CR1_SSM | SPI_CR1_SSI; // SSM: Software slave management, SSI: Internal slave select
+    // SSM: Software slave management, SSI: Internal slave select
+    SPI1->CR1 |= SPI_CR1_SSM | SPI_CR1_SSI;
 
-    SPI1->CR2 |= SPI_CR2_FRXTH;             //8-bit threshold for FIFO reception
+    //8-bit threshold for FIFO reception
+    SPI1->CR2 |= SPI_CR2_FRXTH;
 
-    SPI1->CR1 |= SPI_CR1_SPE;               // Enable SPI
+    //SPI1->CR1 &= ~SPI_CR1_CPOL;
+    //SPI1->CR1 &= ~SPI_CR1_CPHA;
+
+    // Enable SPI
+    SPI1->CR1 |= SPI_CR1_SPE;
 }
 
-void init_lcd_spi(void) {
-    // Enable the clock for GPIOB
+void enable_sdcard(){
+    GPIOB->BSRR |= GPIO_BSRR_BR_2;
+}
+
+void disable_sdcard(){
+    GPIOB->BSRR |= GPIO_BSRR_BS_2;
+}
+
+void init_sdcard_io(){
+    init_spi1_slow();
     RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
-
-    // Configure PB8, PB11, and PB14 as general-purpose outputs for CS, DC/RS, and RST
-    GPIOB->MODER &= ~((3UL << (8 * 2)) | (3UL << (11 * 2)) | (3UL << (14 * 2)));  // Clear mode bits
-    GPIOB->MODER |= (1UL << (8 * 2)) | (1UL << (11 * 2)) | (1UL << (14 * 2));     // Set as output mode (01)
-
-    // Call init_spi1() to configure SPI1 with specified settings
-    init_spi1();
+    GPIOB->MODER &= ~0x30;
+    GPIOB->MODER |= 0x10;
+    //GPIOB->PUPDR |= GPIO_PUPDR_PUPDR2_0;
+    //GPIOB->PUPDR |= GPIO_PUPDR_PUPDR2_1;
+    disable_sdcard();
 }
+
+void sdcard_io_high_speed(){
+    SPI1->CR1 &= ~SPI_CR1_SPE;
+
+    SPI1->CR1 &= ~SPI_CR1_BR_2;
+    SPI1->CR1 &= ~SPI_CR1_BR_1;
+    SPI1->CR1 |= SPI_CR1_BR_0;
+
+    SPI1->CR1 |= SPI_CR1_SPE;
+}
+
+void init_lcd_spi(){
+    RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
+    GPIOB->MODER &= ~0x20830000;
+    GPIOB->MODER |= 0x10410000;
+    init_spi1_slow();
+    sdcard_io_high_speed();
+}
+
+///////////
 
 void init_i2c(void){
     RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
