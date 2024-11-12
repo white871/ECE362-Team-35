@@ -77,9 +77,16 @@ void spi1_enable_dma(void);
 void draw_tile(uint16_t x, uint16_t y, char* value, uint16_t color);
 void render_board();
 uint16_t get_tile_color(uint16_t value);
+void shift_and_merge_left(void);
+void shift_and_merge_right(void);
+void shift_and_merge_up(void);
+void shift_and_merge_down(void);
+void make_move(char direction);
+int is_game_over(void);
+void add_random_tile();
 
 //Variables
-uint8_t board[4][4];
+uint16_t board[4][4];
 
 uint16_t get_tile_color(uint16_t value) {
     switch (value) {
@@ -98,6 +105,16 @@ uint16_t get_tile_color(uint16_t value) {
     }
 }
 
+void make_move(char direction) {
+    switch (direction) {
+        case 'L': shift_and_merge_left(); break;
+        case 'R': shift_and_merge_right(); break;
+        case 'U': shift_and_merge_up(); break;
+        case 'D': shift_and_merge_down(); break;
+        default: return;
+    }
+    add_random_tile();
+}
 
 // Returns 2 with 0.9 probability or 4 with 0.1 probability
 int getRandomNumber() {
@@ -107,6 +124,32 @@ int getRandomNumber() {
     // Return 2 with a probability of 90% and 4 with a probability of 10%
     return (randomValue < 9) ? 2 : 4;
 }
+
+void add_random_tile() {
+    int empty_count = 0;
+    for (int row = 0; row < GRID_SIZE; row++) {
+        for (int col = 0; col < GRID_SIZE; col++) {
+            if (board[row][col] == 0) empty_count++;
+        }
+    }
+
+    if (empty_count == 0) return;  // No empty spots left
+
+    int random_pos = rand() % empty_count;
+    int count = 0;
+    for (int row = 0; row < GRID_SIZE; row++) {
+        for (int col = 0; col < GRID_SIZE; col++) {
+            if (board[row][col] == 0) {
+                if (count == random_pos) {
+                    board[row][col] = (rand() % 10 < 9) ? 2 : 4;  // 90% chance for 2, 10% for 4
+                    return;
+                }
+                count++;
+            }
+        }
+    }
+}
+
 
 void create_board() {
     // Initialize the board to all zeros
@@ -140,8 +183,8 @@ void render_board() {
     char str[5];
     for (int col = 0; col < 4 ; col++) {
         for (int row = 0; row < 4; row++) {
-            uint16_t x = col * CELL_SIZE;  // Calculate x position
-            uint16_t y = row * CELL_SIZE;  // Calculate y position
+            uint16_t x = row * CELL_SIZE;  // Calculate x position
+            uint16_t y = col * CELL_SIZE;  // Calculate y position
             int num = board[row][col];
             snprintf(str, sizeof(str), "%d", num); // int to string
             draw_tile(x, y, str, get_tile_color(num));
@@ -156,20 +199,6 @@ void draw_tile(uint16_t x, uint16_t y, char* value, uint16_t color) {
     LCD_DrawString(x + 15, y + 20, BLACK, color, value, 16, 0);
 }
 
-const uint8_t font_data[10][5] = {
-    // 5x7 pixel representations for digits 0-9
-    {0x3E, 0x51, 0x49, 0x45, 0x3E},  // 0
-    {0x00, 0x42, 0x7F, 0x40, 0x00},  // 1
-    {0x42, 0x61, 0x51, 0x49, 0x46},  // 2
-    {0x21, 0x41, 0x45, 0x4B, 0x31},  // 3
-    {0x18, 0x14, 0x12, 0x7F, 0x10},  // 4
-    {0x27, 0x45, 0x45, 0x45, 0x39},  // 5
-    {0x3C, 0x4A, 0x49, 0x49, 0x30},  // 6
-    {0x01, 0x71, 0x09, 0x05, 0x03},  // 7
-    {0x36, 0x49, 0x49, 0x49, 0x36},  // 8
-    {0x06, 0x49, 0x49, 0x29, 0x1E}   // 9
-};
-
 void internal_clock();
 
 int main(void){
@@ -178,6 +207,12 @@ int main(void){
     LCD_Clear(0000);
     create_board();
     render_board();
+    make_move('D');
+    render_board();
+    /*while(!is_game_over()){
+        make_move('D');
+        render_board();
+    }*/
 }
 
 //PROJECT CODE
@@ -446,4 +481,114 @@ void spi1_setup_dma(void) {
 
 void spi1_enable_dma(void) {
     DMA1_Channel3->CCR |= DMA_CCR_EN;
+}
+
+//Game Logic
+int is_game_over() {
+    for (int row = 0; row < GRID_SIZE; row++) {
+        for (int col = 0; col < GRID_SIZE; col++) {
+            if (board[row][col] == 0) return 0;
+            if (col < GRID_SIZE - 1 && board[row][col] == board[row][col + 1]) return 0;
+            if (row < GRID_SIZE - 1 && board[row][col] == board[row + 1][col]) return 0;
+        }
+    }
+    return 1;  // No moves left
+}
+
+void shift_and_merge_up() {
+    for (int row = 0; row < GRID_SIZE; row++) {
+        int target = 0;
+        for (int col = 1; col < GRID_SIZE; col++) {
+            if (board[row][col] != 0) {
+                int current = col;
+                while (current > target && board[row][current - 1] == 0) {
+                    board[row][current - 1] = board[row][current];
+                    board[row][current] = 0;
+                    current--;
+                }
+                
+                if (current > 0 && board[row][current - 1] == board[row][current]) {
+                    board[row][current - 1] *= 2;
+                    board[row][current] = 0;
+                    target = current;
+                }
+            }
+        }
+    }
+}
+
+void shift_and_merge_down() {
+    for (int row = 0; row < GRID_SIZE; row++) {
+        int target = GRID_SIZE - 1;  // Start from the rightmost position
+
+        for (int col = GRID_SIZE - 1; col >= 0; col--) {
+            if (board[row][col] != 0) {
+                // Move tile to the target position
+                if (target != col) {
+                    board[row][target] = board[row][col];
+                    board[row][col] = 0;
+                }
+
+                // Merge with the previous tile if they are the same
+                if (target < GRID_SIZE - 1 && board[row][target] == board[row][target + 1]) {
+                    board[row][target + 1] *= 2;
+                    board[row][target] = 0;
+                    target++;  // Move forward to handle the merged tile correctly
+                }
+
+                target--;
+            }
+        }
+    }
+}
+
+void shift_and_merge_left() {
+    for (int col = 0; col < GRID_SIZE; col++) {
+        int target = 0;  // The position to place the next non-zero element in the column
+
+        for (int row = 0; row < GRID_SIZE; row++) {
+            if (board[row][col] != 0) {
+                // Move tile to the target position
+                if (target != row) {
+                    board[target][col] = board[row][col];
+                    board[row][col] = 0;
+                }
+
+                // Merge with the tile above if they are the same
+                if (target > 0 && board[target][col] == board[target - 1][col]) {
+                    board[target - 1][col] *= 2;
+                    board[target][col] = 0;
+                    target--;  // Move back to handle merging correctly
+                }
+
+                target++;
+            }
+        }
+    }
+}
+
+
+void shift_and_merge_right() {
+    for (int col = 0; col < GRID_SIZE; col++) {
+        int target = GRID_SIZE - 1;  // Start from the bottom position in each column
+
+        for (int row = GRID_SIZE - 1; row >= 0; row--) {
+            if (board[row][col] != 0) {
+                // Move tile to the target position
+                if (target != row) {
+                    board[target][col] = board[row][col];
+                    board[row][col] = 0;
+                }
+
+                // Merge with the tile below if they are the same
+                if (target < GRID_SIZE - 1 && board[target][col] == board[target + 1][col]) {
+                    board[target + 1][col] *= 2;
+                    board[target][col] = 0;
+                    target++;  // Move forward to handle merging correctly
+                }
+
+                target--;
+            }
+        }
+    }
 }
