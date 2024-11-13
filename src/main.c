@@ -21,8 +21,9 @@ const char* username = "mcdonou5";
 #include <stdio.h>
 #include "lcd.h"
 #include <time.h>
+#include <string.h>
 
-
+#define EEPROM_ADDR 0x57
 #define DISPLAY_WIDTH  240 
 #define DISPLAY_HEIGHT 240
 #define GRID_SIZE      4
@@ -87,6 +88,10 @@ void add_random_tile();
 void init_input(void);
 void setup_adc(void);
 void init_tim2(void);
+void eeprom_write(uint16_t loc, const char* data, uint8_t len);
+void eeprom_read(uint16_t loc, char data[], uint8_t len);
+void enable_i2c_ports(void);
+void compare_score(int current_score);
 
 //Variables
 uint16_t board[4][4];
@@ -550,6 +555,63 @@ void spi1_setup_dma(void) {
 
 void spi1_enable_dma(void) {
     DMA1_Channel3->CCR |= DMA_CCR_EN;
+}
+
+void eeprom_write(uint16_t loc, const char* data, uint8_t len) {
+    uint8_t bytes[34];
+    bytes[0] = loc>>8;
+    bytes[1] = loc&0xFF;
+    for(int i = 0; i<len; i++){
+        bytes[i+2] = data[i];
+    }
+    i2c_senddata(EEPROM_ADDR, bytes, len+2);
+}
+
+void eeprom_read(uint16_t loc, char data[], uint8_t len) {
+    uint8_t bytes[2];
+    bytes[0] = loc>>8;
+    bytes[1] = loc&0xFF;
+    i2c_senddata(EEPROM_ADDR, bytes, 2);
+    i2c_recvdata(EEPROM_ADDR, data, len);
+}
+
+void enable_i2c_ports(void) {
+    RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
+    GPIOA->MODER &= ~0x3C0000;
+    GPIOA->MODER |= 0x280000; //PA9 and PA10 in alternate function
+    GPIOA->AFR[1] |= 0x440; //PA9 and PA10 to AF4
+    GPIOA->PUPDR |= 0x140000;
+}
+
+void compare_score(int current_score)
+{   
+    char old_score[5];
+    eeprom_read(0x0, old_score, 5);
+    char current_string[6];
+    snprintf(current_string, 6, "%d", current_score);
+    int current_high = atoi(old_score);
+    char hiState[15] = "High Score:";
+    char currState[15] = "Score:";
+    char test[5] = "0786888";
+    char copy[6]; 
+    if (current_score > 0) //change to > current_high in actual application
+    { 
+      //  nano_wait(10000000000);
+        eeprom_write(0x0, current_string, 6);
+        strcpy(copy, current_string);
+        strcat(hiState, current_string);
+        spi1_display1(hiState);
+        strcat(currState, copy);
+        spi1_display2(currState);
+
+    }
+    else
+    {   
+     //   nano_wait(10000000000);
+        eeprom_write(0x0, old_score, 6);
+        strcat(hiState, old_score);
+        spi1_display1(hiState);
+    }
 }
 
 //Game Logic
