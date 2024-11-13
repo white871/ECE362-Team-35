@@ -90,6 +90,7 @@ void init_tim2(void);
 
 //Variables
 uint16_t board[4][4];
+int is_move = 0;
 
 uint16_t get_tile_color(uint16_t value) {
     switch (value) {
@@ -208,16 +209,14 @@ int xvalue = 0;
 int yvalue = 0;
 int main(void){
     internal_clock();
+    RCC -> AHBENR |= RCC_AHBENR_GPIOCEN;
+    GPIOC -> MODER |= GPIO_MODER_MODER6_0 | GPIO_MODER_MODER7_0 | GPIO_MODER_MODER8_0 | GPIO_MODER_MODER9_0;
     LCD_Setup();
     LCD_Clear(0000);
     create_board();
-    render_board();
-    make_move('D');
-    render_board();
-    RCC -> AHBENR |= RCC_AHBENR_GPIOCEN;
-    GPIOC -> MODER |= GPIO_MODER_MODER6_0 | GPIO_MODER_MODER7_0 | GPIO_MODER_MODER8_0 | GPIO_MODER_MODER9_0;
     setup_adc();
     init_tim2();
+    //render_board();
     
     /*while(!is_game_over()){
         make_move('D');
@@ -247,37 +246,48 @@ void setup_adc(void) {
 // Test function for reading left, right, up, and down
 void setLights(int xvalue, int yvalue)
 {
-    if (xvalue > 3000)
+
+    if (xvalue > 3000 & !is_move)
     {
-        GPIOC -> BSRR |= GPIO_BSRR_BS_6;
+        is_move = 1;
+        make_move('R');
+        /*GPIOC -> BSRR |= GPIO_BSRR_BS_6;
         GPIOC -> BRR |= GPIO_BRR_BR_7;
         GPIOC -> BRR |= GPIO_BRR_BR_8;
-        GPIOC -> BRR |= GPIO_BRR_BR_9;
-    } else if (xvalue < 1000)
+        GPIOC -> BRR |= GPIO_BRR_BR_9;*/
+    } else if (xvalue < 1000 & !is_move)
     {
-        GPIOC -> BRR |= GPIO_BRR_BR_6;
-        GPIOC -> BSRR |= GPIO_BSRR_BS_7;
-        GPIOC -> BRR |= GPIO_BRR_BR_8;
-        GPIOC -> BRR |= GPIO_BRR_BR_9;
+        is_move = 1;
+        make_move('L');
+        // GPIOC -> BRR |= GPIO_BRR_BR_6;
+        // GPIOC -> BSRR |= GPIO_BSRR_BS_7;
+        // GPIOC -> BRR |= GPIO_BRR_BR_8;
+        // GPIOC -> BRR |= GPIO_BRR_BR_9;
     }
-    else if (yvalue > 3000)
+    else if (yvalue > 3000 & !is_move)
     {
-        GPIOC -> BRR |= GPIO_BRR_BR_6;
-        GPIOC -> BRR |= GPIO_BRR_BR_7;
-        GPIOC -> BSRR |= GPIO_BSRR_BS_8;
-        GPIOC -> BRR |= GPIO_BRR_BR_9;
-    } else if (yvalue < 1000)
+        is_move = 1;
+        make_move('U');
+        // GPIOC -> BRR |= GPIO_BRR_BR_6;
+        // GPIOC -> BRR |= GPIO_BRR_BR_7;
+        // GPIOC -> BSRR |= GPIO_BSRR_BS_8;
+        // GPIOC -> BRR |= GPIO_BRR_BR_9;
+    } else if (yvalue < 1000 & !is_move)
     {
-        GPIOC -> BRR |= GPIO_BRR_BR_6;
-        GPIOC -> BRR |= GPIO_BRR_BR_7;
-        GPIOC -> BRR |= GPIO_BRR_BR_8;
-        GPIOC -> BSRR |= GPIO_BSRR_BS_9;
+        is_move = 1;
+        make_move('D');
+        // GPIOC -> BRR |= GPIO_BRR_BR_6;
+        // GPIOC -> BRR |= GPIO_BRR_BR_7;
+        // GPIOC -> BRR |= GPIO_BRR_BR_8;
+        // GPIOC -> BSRR |= GPIO_BSRR_BS_9;
     } else 
     {
-        GPIOC -> BRR |= GPIO_BRR_BR_6;
-        GPIOC -> BRR |= GPIO_BRR_BR_7;
-        GPIOC -> BRR |= GPIO_BRR_BR_8;
-        GPIOC -> BRR |= GPIO_BRR_BR_9;
+        is_move = 0;
+        return;
+        // GPIOC -> BRR |= GPIO_BRR_BR_6;
+        // GPIOC -> BRR |= GPIO_BRR_BR_7;
+        // GPIOC -> BRR |= GPIO_BRR_BR_8;
+        // GPIOC -> BRR |= GPIO_BRR_BR_9;
     }
 }
 void TIM2_IRQHandler()
@@ -289,6 +299,7 @@ void TIM2_IRQHandler()
     while ((ADC1 -> ISR & ADC_ISR_EOC) == 0);
     xvalue = ADC1 -> DR;
     setLights(xvalue, yvalue);
+    render_board();
 }
 
 //===========================================================================
