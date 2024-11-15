@@ -92,10 +92,13 @@ void eeprom_write(uint16_t loc, const char* data, uint8_t len);
 void eeprom_read(uint16_t loc, char data[], uint8_t len);
 void enable_i2c_ports(void);
 void compare_score(int current_score);
+void calc_score();
 
 //Variables
 uint16_t board[4][4];
 int is_move = 0;
+uint8_t moved;
+int score;
 
 uint16_t get_tile_color(uint16_t value) {
     switch (value) {
@@ -115,6 +118,7 @@ uint16_t get_tile_color(uint16_t value) {
 }
 
 void make_move(char direction) {
+    moved = 0;
     switch (direction) {
         case 'L': shift_and_merge_left(); break;
         case 'R': shift_and_merge_right(); break;
@@ -122,7 +126,19 @@ void make_move(char direction) {
         case 'D': shift_and_merge_down(); break;
         default: return;
     }
-    add_random_tile();
+    if(moved){
+        add_random_tile();
+    }
+}
+
+void calc_score(){
+    int temp = 0;
+    for(int row = 0; row < GRID_SIZE; row++){
+        for(int col = 0; col < GRID_SIZE; col++){
+            temp+=board[row][col];
+        }
+    }
+    score = temp;
 }
 
 
@@ -190,7 +206,7 @@ int calcScore(int current_score, int merge_val){
 }
 
 void render_board() {
-    char str[5];
+    char str[6];
     for (int col = 0; col < 4 ; col++) {
         for (int row = 0; row < 4; row++) {
             uint16_t x = row * CELL_SIZE;  // Calculate x position
@@ -200,7 +216,15 @@ void render_board() {
             draw_tile(x, y, str, get_tile_color(num));
         }
     }
-}
+    if(is_game_over()){
+        LCD_DrawString(80, 240 + 20, COLOR_8, COLOR_2, "GameOver", 16, 0);
+    }else{
+        calc_score();
+        snprintf(str, sizeof(str), "%d", score);
+        LCD_DrawString(80, 280, COLOR_8, COLOR_2, str, 16, 0);
+    }
+}    
+
 
 void draw_tile(uint16_t x, uint16_t y, char* value, uint16_t color) {
     LCD_DrawFillRectangle(x, y, x + CELL_SIZE, y + CELL_SIZE, color);  // Fill tile background
@@ -227,7 +251,9 @@ int main(void){
         make_move('D');
         render_board();
     }*/
-
+   while(1){
+    
+   }
 }
 
 //PROJECT CODE
@@ -251,8 +277,7 @@ void setup_adc(void) {
 // Test function for reading left, right, up, and down
 void setLights(int xvalue, int yvalue)
 {
-
-    if (xvalue > 3000 & !is_move)
+    if ((xvalue > 3000) & !is_move)
     {
         is_move = 1;
         make_move('R');
@@ -260,7 +285,7 @@ void setLights(int xvalue, int yvalue)
         GPIOC -> BRR |= GPIO_BRR_BR_7;
         GPIOC -> BRR |= GPIO_BRR_BR_8;
         GPIOC -> BRR |= GPIO_BRR_BR_9;*/
-    } else if (xvalue < 1000 & !is_move)
+    } else if ((xvalue < 1000) & !is_move)
     {
         is_move = 1;
         make_move('L');
@@ -269,7 +294,7 @@ void setLights(int xvalue, int yvalue)
         // GPIOC -> BRR |= GPIO_BRR_BR_8;
         // GPIOC -> BRR |= GPIO_BRR_BR_9;
     }
-    else if (yvalue > 3000 & !is_move)
+    else if ((yvalue > 3000) & !is_move)
     {
         is_move = 1;
         make_move('U');
@@ -277,7 +302,7 @@ void setLights(int xvalue, int yvalue)
         // GPIOC -> BRR |= GPIO_BRR_BR_7;
         // GPIOC -> BSRR |= GPIO_BSRR_BS_8;
         // GPIOC -> BRR |= GPIO_BRR_BR_9;
-    } else if (yvalue < 1000 & !is_move)
+    } else if ((yvalue < 1000) & !is_move)
     {
         is_move = 1;
         make_move('D');
@@ -619,7 +644,7 @@ int is_game_over() {
     for (int row = 0; row < GRID_SIZE; row++) {
         for (int col = 0; col < GRID_SIZE; col++) {
             if (board[row][col] == 0) return 0;
-            if (col < GRID_SIZE - 1 && board[row][col] == board[row][col + 1]) return 0;
+            if ((col < GRID_SIZE - 1) && board[row][col] == board[row][col + 1]) return 0;
             if (row < GRID_SIZE - 1 && board[row][col] == board[row + 1][col]) return 0;
         }
     }
@@ -636,12 +661,14 @@ void shift_and_merge_up() {
                     board[row][current - 1] = board[row][current];
                     board[row][current] = 0;
                     current--;
+                    moved = 1;
                 }
                 
                 if (current > 0 && board[row][current - 1] == board[row][current]) {
                     board[row][current - 1] *= 2;
                     board[row][current] = 0;
                     target = current;
+                    moved = 1;
                 }
             }
         }
@@ -658,13 +685,15 @@ void shift_and_merge_down() {
                 if (target != col) {
                     board[row][target] = board[row][col];
                     board[row][col] = 0;
+                    moved = 1;
                 }
 
                 // Merge with the previous tile if they are the same
-                if (target < GRID_SIZE - 1 && board[row][target] == board[row][target + 1]) {
+                if ((target < GRID_SIZE - 1) && (board[row][target] == board[row][target + 1])) {
                     board[row][target + 1] *= 2;
                     board[row][target] = 0;
                     target++;  // Move forward to handle the merged tile correctly
+                    moved = 1;
                 }
 
                 target--;
@@ -683,6 +712,7 @@ void shift_and_merge_left() {
                 if (target != row) {
                     board[target][col] = board[row][col];
                     board[row][col] = 0;
+                    moved = 1;
                 }
 
                 // Merge with the tile above if they are the same
@@ -690,6 +720,7 @@ void shift_and_merge_left() {
                     board[target - 1][col] *= 2;
                     board[target][col] = 0;
                     target--;  // Move back to handle merging correctly
+                    moved = 1;
                 }
 
                 target++;
@@ -709,6 +740,7 @@ void shift_and_merge_right() {
                 if (target != row) {
                     board[target][col] = board[row][col];
                     board[row][col] = 0;
+                    moved = 1;
                 }
 
                 // Merge with the tile below if they are the same
@@ -716,6 +748,7 @@ void shift_and_merge_right() {
                     board[target + 1][col] *= 2;
                     board[target][col] = 0;
                     target++;  // Move forward to handle merging correctly
+                    moved = 1;
                 }
 
                 target--;
