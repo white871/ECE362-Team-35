@@ -67,7 +67,7 @@ int i2c_recvdata(uint8_t targadr, void *data, uint8_t size);
 int8_t i2c_senddata(uint8_t targadr, uint8_t data[], uint8_t size);
 int i2c_checknack(void);
 void i2c_clearnack(void);
-void init_spi1();
+void init_spi1_slow();
 void spi_cmd(unsigned int data);
 void spi_data(unsigned int data);
 void spi1_init_oled();
@@ -116,6 +116,20 @@ uint16_t get_tile_color(uint16_t value) {
         default:   return BACKGROUND_COLOR;
     }
 }
+
+void display_game_over_with_graphics(void) {
+    LCD_Clear(0x0000); // Clear the screen with black color
+
+    // Draw filled rectangle as a background for text
+    LCD_DrawFillRectangle(0, 0, 240, 320, RED); // Blue background
+
+    // Display "GAME"
+    LCD_DrawString(80, 130, WHITE, BLACK, "GAME", 16, 0); // White text
+
+    // Display "OVER"
+    LCD_DrawString(120, 130, WHITE, BLACK, "OVER", 16, 0); // White text
+}
+
 
 void make_move(char direction) {
     moved = 0;
@@ -217,7 +231,8 @@ void render_board() {
         }
     }
     if(is_game_over()){
-        LCD_DrawString(80, 240 + 20, COLOR_8, COLOR_2, "GameOver", 16, 0);
+        display_game_over_with_graphics();
+        while(1){}
     }else{
         calc_score();
         snprintf(str, sizeof(str), "%d", score);
@@ -238,8 +253,14 @@ int xvalue = 0;
 int yvalue = 0;
 int main(void){
     internal_clock();
+    init_spi1();
+    spi1_setup_dma();
+    spi1_enable_dma();
+    spi1_init_oled();
     RCC -> AHBENR |= RCC_AHBENR_GPIOCEN;
     GPIOC -> MODER |= GPIO_MODER_MODER6_0 | GPIO_MODER_MODER7_0 | GPIO_MODER_MODER8_0 | GPIO_MODER_MODER9_0;
+
+    spi1_display1("High Score: N/A");
     LCD_Setup();
     LCD_Clear(0000);
     create_board();
@@ -297,7 +318,7 @@ void setLights(int xvalue, int yvalue)
     else if ((yvalue > 3000) & !is_move)
     {
         is_move = 1;
-        make_move('U');
+        make_move('D'); // U
         // GPIOC -> BRR |= GPIO_BRR_BR_6;
         // GPIOC -> BRR |= GPIO_BRR_BR_7;
         // GPIOC -> BSRR |= GPIO_BSRR_BS_8;
@@ -305,7 +326,7 @@ void setLights(int xvalue, int yvalue)
     } else if ((yvalue < 1000) & !is_move)
     {
         is_move = 1;
-        make_move('D');
+        make_move('U'); // D
         // GPIOC -> BRR |= GPIO_BRR_BR_6;
         // GPIOC -> BRR |= GPIO_BRR_BR_7;
         // GPIOC -> BRR |= GPIO_BRR_BR_8;
