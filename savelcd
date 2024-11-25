@@ -1,0 +1,39 @@
+//===========================================================================
+// SPI1 TFT Display
+//===========================================================================
+
+void init_spi1(void) {
+    // Enable clocks for SPI1 and GPIOA
+    RCC->APB2ENR |= RCC_APB2ENR_SPI1EN;      // Enable SPI1 clock
+    RCC->AHBENR |= RCC_AHBENR_GPIOAEN;     // Enable GPIOA clock
+
+    // Configure GPIOA pins PA15 (SCK), PA5 (MISO), and PA7 (MOSI) for SPI1
+    GPIOA->MODER &= ~0xC000CC00;  // Clear mode bits
+    GPIOA->MODER |= 0x80008800;     // Set alternate function mode (10) for PA15, PA5, PA7
+    GPIOA->AFR[1] &= ~0xF0000000;    // Clear AFRH bits for PA15 (AF0)
+    GPIOA->AFR[0] &= ~0xF0F00000;    // Clear AFRL bits for PA5 and PA7 (AF0)
+
+    // Configure SPI1
+    SPI1->CR1 &= ~SPI_CR1_SPE;
+
+    // Set baud rate to maximum divisor (24MHz speed)
+    SPI1->CR1 &= ~SPI_CR1_BR;
+    SPI1->CR1 |= SPI_CR1_MSTR;              // Master selection
+    SPI1->CR2 |= SPI_CR2_DS;                // 8-bit data frame format
+    SPI1->CR2 &= ~SPI_CR2_DS_3;
+    SPI1->CR1 |= SPI_CR1_SSM | SPI_CR1_SSI; // SSM: Software slave management, SSI: Internal slave select
+    SPI1->CR2 |= SPI_CR2_FRXTH;             //8-bit threshold for FIFO reception
+    SPI1->CR1 |= SPI_CR1_SPE;               // Enable SPI
+}
+
+void init_lcd_spi(void) {
+    // Enable the clock for GPIOB
+    RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
+
+    // Configure PB8, PB11, and PB14 as general-purpose outputs for CS, DC/RS, and RST
+    GPIOB->MODER &= ~0x30C30000;  // Clear PB8, PB11, PB14
+    GPIOB->MODER |= 0x20420000;     // Set PB8, PB11, PB14 for output (01)
+
+    // Call init_spi1() to configure SPI1 with specified settings
+    init_spi1();
+}

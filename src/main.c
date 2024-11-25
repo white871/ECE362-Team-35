@@ -57,7 +57,7 @@ uint16_t display[34] = {
 void internal_clock(void);
 int main(void);
 void setup_adc(void);
-void init_spi1(void);
+void init_spi2(void);
 void init_lcd_spi(void);
 void init_i2c(void);
 void i2c_start(uint32_t targadr, uint8_t size, uint8_t dir);
@@ -93,12 +93,18 @@ void eeprom_read(uint16_t loc, char data[], uint8_t len);
 void enable_i2c_ports(void);
 void compare_score(int current_score);
 void calc_score();
+void new_game();
+void initb();
+void init_exti();
 
 //Variables
 uint16_t board[4][4];
 int is_move = 0;
 uint8_t moved;
 int score;
+char highScore[18] = "High Score:";
+int countReset = 0;
+
 
 uint16_t get_tile_color(uint16_t value) {
     switch (value) {
@@ -220,23 +226,32 @@ int calcScore(int current_score, int merge_val){
 }
 
 void render_board() {
-    char str[6];
+    char str1[6];
+    char curr[15] = "Score:";
+    char str2[6];
     for (int col = 0; col < 4 ; col++) {
         for (int row = 0; row < 4; row++) {
             uint16_t x = row * CELL_SIZE;  // Calculate x position
             uint16_t y = col * CELL_SIZE;  // Calculate y position
             int num = board[row][col];
-            snprintf(str, sizeof(str), "%d", num); // int to string
-            draw_tile(x, y, str, get_tile_color(num));
+            snprintf(str1, sizeof(str1), "%d", num); // int to string
+            draw_tile(x, y, str1, get_tile_color(num));
         }
     }
     if(is_game_over()){
         display_game_over_with_graphics();
-        while(1){}
+        while(!(GPIOB->IDR & 0x1))
+        {
+
+        }
     }else{
         calc_score();
-        snprintf(str, sizeof(str), "%d", score);
-        LCD_DrawString(80, 280, COLOR_8, COLOR_2, str, 16, 0);
+        snprintf(str1, sizeof(str1), "%d", score);
+        snprintf(str2, sizeof(str2), "%d", score);
+        strcat(curr, str2);
+        spi1_init_oled();
+        spi1_display1(curr);
+        LCD_DrawString(80, 280, COLOR_8, COLOR_2, str1, 16, 0);
     }
 }    
 
@@ -252,33 +267,33 @@ void internal_clock();
 int xvalue = 0;
 int yvalue = 0;
 int main(void){
+    char buff[6];
+    char hold[6];
     internal_clock();
-    init_spi1();
-    spi1_setup_dma();
-    spi1_enable_dma();
+    enable_i2c_ports();
+    init_i2c();
+    init_spi2();
     spi1_init_oled();
     RCC -> AHBENR |= RCC_AHBENR_GPIOCEN;
     GPIOC -> MODER |= GPIO_MODER_MODER6_0 | GPIO_MODER_MODER7_0 | GPIO_MODER_MODER8_0 | GPIO_MODER_MODER9_0;
 
-    spi1_display1("High Score: N/A");
     LCD_Setup();
     LCD_Clear(0000);
     create_board();
     setup_adc();
     init_tim2();
-    //render_board();
-    
-    /*while(!is_game_over()){
-        make_move('D');
-        render_board();
-    }*/
+    initb();
+    init_exti();
    while(1){
-    
-   }
+   };
 }
 
 //PROJECT CODE
-
+void new_game(){
+    LCD_Setup();
+    LCD_Clear(0000);
+    create_board();
+}
 
 //from lab 4
 void setup_adc(void) {
@@ -553,8 +568,8 @@ void init_spi1() {
     SPI1->CR1 |= SPI_CR1_SPE;
 }
 void spi_cmd(unsigned int data) {
-    while((SPI1->SR & SPI_SR_TXE) == 0);
-    SPI1->DR = data;
+    while((SPI2->SR & SPI_SR_TXE) == 0);
+    SPI2->DR = data;
 }
 void spi_data(unsigned int data) {
     spi_cmd(data | 0x200);
@@ -638,25 +653,22 @@ void compare_score(int current_score)
     int current_high = atoi(old_score);
     char hiState[15] = "High Score:";
     char currState[15] = "Score:";
-    char test[5] = "0786888";
-    char copy[6]; 
-    if (current_score > 0) //change to > current_high in actual application
+    if (current_score > current_high) //change to > current_high in actual application
     { 
-      //  nano_wait(10000000000);
         eeprom_write(0x0, current_string, 6);
-        strcpy(copy, current_string);
         strcat(hiState, current_string);
+        spi1_init_oled();
         spi1_display1(hiState);
-        strcat(currState, copy);
-        spi1_display2(currState);
-
+        spi1_display2("Resetting...");
+       // nano_wait(10000000000000);
     }
     else
     {   
-     //   nano_wait(10000000000);
-        eeprom_write(0x0, old_score, 6);
         strcat(hiState, old_score);
+        spi1_init_oled();
         spi1_display1(hiState);
+        spi1_display2("Resetting...");
+       // nano_wait(10000000000000);
     }
 }
 
@@ -788,3 +800,56 @@ void init_tim2(void)
     NVIC_EnableIRQ(TIM2_IRQn);
 }
 
+void init_spi2() {
+    RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
+    RCC->APB1ENR |= RCC_APB1ENR_SPI2EN;
+    GPIOB->MODER &= ~0xCF000000;
+    GPIOB->MODER |= 0x8A000000;
+    GPIOB->AFR[1] &= ~0xF0FF0000;
+    SPI2->CR1 &= ~SPI_CR1_SPE;
+    SPI2->CR1 |= SPI_CR1_BR | SPI_CR1_MSTR; //BR to 111 and Master Mode
+    SPI2->CR2 |= SPI_CR2_TXDMAEN | SPI_CR2_NSSP | SPI_CR2_SSOE; //NSSP and SSOE bit and enable TXDMAEN
+    SPI2->CR2 |= 0xF00; //1111 in DS
+    SPI2->CR2 &= ~0x600; //1001 in DS
+    SPI2->CR1 |= SPI_CR1_SPE;
+}
+
+void EXTI0_1_IRQHandler() {
+  EXTI->PR = 0x1; //acknowledge bit 0
+
+  char sayScore[18] = "High Score:";
+  char scorestr[6];
+  if (!countReset)
+  {
+        snprintf(scorestr, sizeof(scorestr), "%d", score);
+        strcat(sayScore, scorestr);
+        spi1_init_oled();
+        spi1_display1(sayScore);
+        spi1_display2("Resetting...");
+        eeprom_write(0x0, scorestr, 6);
+        nano_wait(100000000000000000);
+  }
+  else{
+     compare_score(score); 
+     nano_wait(100000000000000000);
+  }   
+  new_game();
+  countReset++;
+} 
+
+void init_exti() {
+  RCC->APB2ENR |= 0x1; //sets SYSCGFCOMPEN to 1 (bit 0)
+  //clearing and setting pins in SYSCFG to Port B
+  SYSCFG->EXTICR[0] &= ~0x000F;
+  SYSCFG->EXTICR[0] |= 0x0001;
+
+  EXTI->RTSR &= ~0x1; //clear bits and pb0, and pb2-4
+  EXTI->RTSR |= 0x1; //set bits pb0, pb2-4 to trigger off rising edge
+  EXTI->IMR &= ~0x1; //clear bits and pb0, and pb2-4
+  EXTI->IMR |= 0x1; //set bits pb0, pb2-4 to unmask interrupts
+ NVIC->ISER[0] |= 0xE0; //enabling appropriate interrupts
+}
+void initb() {
+  RCC->AHBENR |= RCC_AHBENR_GPIOBEN; 
+  GPIOB->MODER &= ~0x00000003; //clearing appropriate bits
+}
